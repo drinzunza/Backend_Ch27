@@ -1,7 +1,8 @@
-from flask import Flask, request
+from flask import Flask, request, abort
 import json
 from mock_data import mock_catalog
 from config import db
+from bson import ObjectId
 
 app = Flask("server")
 
@@ -66,6 +67,7 @@ def get_cheapest():
         if prod["price"] < solution["price"]:
             solution = prod
 
+   
     solution["_id"] = str(solution["_id"])
     return json.dumps(solution)
 
@@ -76,8 +78,9 @@ def get_cheapest():
 # return the sum of all product's price
 @app.route("/api/catalog/total")
 def get_total():
+    cursor = db.products.find({})
     total = 0
-    for prod in mock_catalog:
+    for prod in cursor:
         total += prod["price"]
 
     return json.dumps(total)
@@ -88,10 +91,10 @@ def get_total():
 # find a product based on the unique id
 @app.route("/api/products/<id>")
 def find_product(id):
-    for prod in mock_catalog:
-        if id == prod["_id"]:
-            return json.dumps(prod)
+    prod  = db.products.find_one({"_id": ObjectId(id) })
+    prod["_id"] = str(prod["_id"])
 
+    return json.dumps(prod)
 
 
 # get the list of categories from the catalog
@@ -100,9 +103,9 @@ def find_product(id):
 @app.route("/api/products/categories")
 def get_categories():
     categories = []
-
+    cursor = db.products.find({})
     # push all the categories into the list
-    for prod in mock_catalog:
+    for prod in cursor:
         cat = prod["category"]
         if cat not in categories:
             categories.append(cat)
@@ -116,11 +119,12 @@ def get_categories():
 @app.route("/api/products/category/<cat_name>")
 def get_by_category(cat_name):
     results = []
-
-    # add products whose category is equal to name
-    for prod in mock_catalog:
-        if prod["category"].lower() == cat_name.lower():
-            results.append(prod)
+    cursor = db.products.find({"category": cat_name})
+    # get the products from the cursor, fix the _id, put them on results
+    for prod in cursor:
+        prod["_id"] = str(prod["_id"])
+        results.append(prod)
+   
 
     return json.dumps(results)
 
@@ -145,7 +149,56 @@ def search_by_text(text):
 
 
 
+###########################################
+##########   Coupon Codes   ###############
+## _id, code, discount
+###########################################
 
+#1 - get /api/couponCodes
+@app.get("/api/couponCodes")
+def get_coupon_codes():
+    cursor = db.couponCodes.find({})
+    results = []
+    for coupon in cursor:
+        coupon["_id"] = str(coupon["_id"])
+        results.append(coupon)
+
+    return json.dumps(results)
+
+
+#2 - get /api/couponCodes/<code>
+@app.get("/api/couponCodes/<code>")
+def get_by_code(code):
+    coupon = db.couponCodes.find_one({"code": code})
+    if not coupon:
+        return abort(400, "Invalid coupon code")
+        
+    coupon["_id"] = str(coupon["_id"])
+    return json.dumps(coupon)
+
+
+
+#3 - POST /api/couponCodes
+@app.post("/api/couponCodes")
+def save_coupon():
+    coupon = request.get_json()
+
+    # validate that code exist and contains at least 5 chars
+    if not "code" in coupon or len(coupon["code"]) < 5:
+        return abort(400, "Code is required and should contains at least 5 chars.")
+
+    # validate that discount is not over 31%
+    if not "discount" in coupon or type(coupon["discount"]) != type(int) or type(coupon["discount"]) != type(float):
+        return abort(400, "Discount is required and should a valid number.")
+
+    if coupon["discount"] < 0 or coupon["discount"] > 31:
+        return abort(400, "Discount should be between 0 and 31.")
+
+
+    db.couponCodes.insert_one(coupon)
+    coupon["_id"] = str(coupon["_id"])
+
+    return json.dumps(coupon)
 
 
 
